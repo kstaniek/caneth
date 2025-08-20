@@ -14,8 +14,8 @@ import argparse
 import asyncio
 import logging
 import re
+from collections.abc import Callable
 from contextlib import suppress
-from typing import Callable
 
 from .client import CANFrame, WaveShareCANClient
 from .utils import parse_hex_bytes

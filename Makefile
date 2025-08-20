@@ -43,10 +43,13 @@ venv: ## Create virtual environment in $(VENV)
 
 dev: venv ## Install package in editable mode + dev tools
 	$(PIP) install -e .
-	$(PIP) install pytest pytest-asyncio pytest-cov ruff mypy pdoc build pre-commit
+	$(PIP) install pytest pytest-asyncio pytest-cov ruff mypy pdoc build pre-commit twine
 
 install: venv ## Install package in editable mode (no dev deps)
 	$(PIP) install -e .
+
+twine-check: dist ## Validate built artifacts
+	$(BIN)/twine check dist/*
 
 precommit-install: ## Install pre-commit hooks
 	$(BIN)/pre-commit install

@@ -23,12 +23,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Awaitable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
-from typing import (
-    Callable,
-    Optional,
-)
 
 __all__ = ["CANFrame", "WaveShareCANClient"]
 
@@ -95,7 +91,7 @@ class CANFrame:
 # ----------------------------- Client ------------------------------------------
 
 Callback = Callable[[CANFrame], Awaitable[None] | None]
-CallbackKey = tuple[int, Optional[int], Optional[int]]
+CallbackKey = tuple[int, int | None, int | None]
 
 
 @dataclass(slots=True)
@@ -351,7 +347,7 @@ class WaveShareCANClient:
             extended: Force extended (29-bit) or standard (11-bit). If None, inferred from `can_id > 0x7FF`.
             rtr: Remote frame flag.
         """
-        payload = bytes(data) if not isinstance(data, (bytes, bytearray)) else bytes(data)
+        payload = bytes(data) if not isinstance(data, bytes | bytearray) else bytes(data)
         if len(payload) > 8:
             raise ValueError("data length must be <= 8")
         if extended is None:
