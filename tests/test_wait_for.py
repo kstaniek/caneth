@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from caneth.client import WaveShareCANClient
 
-from .helpers import build_frame
+from .conftest import build_frame
 
 pytestmark = pytest.mark.asyncio
 
