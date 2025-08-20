@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use caneth, please cite it."
+title: "caneth: asyncio CAN client for Waveshare 2-CH-CAN-TO-ETH"
+authors:
+  - family-names: Staniek
+    given-names: K.
+repository-code: "https://github.com/kstaniek/caneth"
+url: "https://kstaniek.github.io/caneth/"
+license: "MIT"
