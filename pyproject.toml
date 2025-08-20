@@ -1,14 +1,14 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=68", "wheel", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "caneth"
-version = "0.1.1"
+dynamic = ["version"]
 description = "Asyncio CAN client for Waveshare 2-CH-CAN-TO-ETH with auto-reconnect and CLI"
 authors = [{name = "Klaudiusz Staniek"}]
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
 requires-python = ">=3.10"
 classifiers = [
   "Programming Language :: Python :: 3",
@@ -16,7 +16,6 @@ classifiers = [
   "Framework :: AsyncIO",
   "Topic :: System :: Networking",
   "Typing :: Typed",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
 
@@ -29,6 +28,11 @@ Changelog = "https://github.com/kstaniek/caneth/releases"
 
 [project.scripts]
 caneth = "caneth.cli:main"
+
+
+[tool.setuptools_scm]
+version_scheme = "post-release"
+local_scheme = "no-local-version"
 
 [tool.ruff]
 line-length = 120
