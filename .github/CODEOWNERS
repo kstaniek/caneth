@@ -1,0 +1,16 @@
+# CODEOWNERS
+# Lines below map file globs to GitHub users/teams who will be requested for review.
+# Docs: https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner(s) for everything in the repo
+*               @kstaniek
+
+# CI workflows
+.github/workflows/*   @kstaniek
+
+# Python package
+caneth/**             @kstaniek
+
+# Docs / generated site (if kept in repo)
+docs/**               @kstaniek
+site/**               @kstaniek
