@@ -1,12 +1,14 @@
-"""caneth — Asyncio CAN client for Waveshare 2-CH-CAN-TO-ETH.
+"""Top-level package for caneth.
 
-Public API:
-    - WaveShareCANClient: Async client with auto-reconnect and callback registry
-    - CANFrame: Dataclass representing a CAN frame
-    - parse_hex_bytes: Utility to parse human-friendly hex strings
+This module exposes the primary public API and configures library-friendly logging.
 """
 
 from .client import CANFrame, WaveShareCANClient
 from .utils import parse_hex_bytes
 
-__all__ = ["WaveShareCANClient", "CANFrame", "parse_hex_bytes"]
+__all__ = ["CANFrame", "WaveShareCANClient", "parse_hex_bytes"]
+
+# Library-friendly logging: don't emit logs unless the app configures handlers.
+import logging as _logging
+
+_logging.getLogger(__name__).addHandler(_logging.NullHandler())

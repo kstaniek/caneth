@@ -12,9 +12,20 @@ license = { file = "LICENSE" }
 requires-python = ">=3.10"
 classifiers = [
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Framework :: AsyncIO",
+  "Topic :: System :: Networking",
+  "Typing :: Typed",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
+
+[project.urls]
+Homepage = "https://github.com/kstaniek/caneth"
+Documentation = "https://kstaniek.github.io/caneth/"
+Source = "https://github.com/kstaniek/caneth"
+Issues = "https://github.com/kstaniek/caneth/issues"
+Changelog = "https://github.com/kstaniek/caneth/releases"
 
 [project.scripts]
 caneth = "caneth.cli:main"
@@ -48,3 +59,7 @@ ignore_missing_imports = true
 strict_optional = true
 scripts_are_modules = true
 packages = ["caneth"]
+
+[tool.setuptools.package-data]
+caneth = ["py.typed"]
+
