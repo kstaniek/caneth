@@ -1,0 +1,68 @@
+# --- Python bytecode / caches ---
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+
+# --- Build / packaging artifacts ---
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+.wheelhouse/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Test / coverage ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# --- Type checking / lint caches ---
+.mypy_cache/
+.pytype/
+.ruff_cache/
+.pyright/
+.dmypy.json
+.pyre/
+
+# --- Logs ---
+*.log
+
+# --- Docs / sites (we keep docs/ markdown, ignore built site) ---
+site/
+docs/_build/
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+*.code-workspace
+
+# --- OS cruft ---
+.DS_Store
+Thumbs.db
+
+# --- Editor swap files ---
+*.swp
+*.swo
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- Local env files / secrets ---
+.env
+.env.*
+*.env
+
+# --- Temporary scratch ---
+tmp/
+temp/

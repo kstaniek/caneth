@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caneth"
+version = "0.1.1"
+description = "Asyncio CAN client for Waveshare 2-CH-CAN-TO-ETH with auto-reconnect and CLI"
+authors = [{name = "Klaudiusz Staniek"}]
+readme = "README.md"
+requires-python = ">=3.9"
+
+[project.scripts]
+caneth = "caneth.cli:main"
+
+[tool.ruff]
+line-length = 120
+src = ["caneth", "tests"]
+exclude = ["site", "docs"]
+
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "I",  # pycodestyle/pyflakes/imports
+  "UP",           # pyupgrade
+  "B",            # bugbear
+  "SIM",          # flake8-simplify
+]
+ignore = [
+  "E203",  # allow whitespace before ':' (black/ruff-format compat)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+ignore_missing_imports = true
+strict_optional = true
+scripts_are_modules = true
+packages = ["caneth"]
