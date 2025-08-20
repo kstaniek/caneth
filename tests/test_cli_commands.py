@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable
 
 import pytest
@@ -41,7 +42,8 @@ class FakeClient:
 
     async def wait_for(self, can_id: int, *, d0=None, d1=None, timeout=None) -> CANFrame:
         if FakeClient.raise_timeout:
-            raise TimeoutError("timeout (fake)")
+            # Match CLI's except asyncio.TimeoutError:
+            raise asyncio.TimeoutError("timeout (fake)")
         if FakeClient.next_wait_frame is None:
             # sensible default: return an empty frame with the id
             return CANFrame(can_id=can_id, data=b"", extended=can_id > 0x7FF, rtr=False, dlc=0)

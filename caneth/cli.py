@@ -147,7 +147,7 @@ async def _cmd_wait(args: argparse.Namespace) -> None:
     try:
         frame = await client.wait_for(can_id, d0=d0, d1=d1, timeout=args.wait_timeout)
         print("Matched:", frame)
-    except asyncio.TimeoutError:
+    except (asyncio.TimeoutError, TimeoutError):
         print("Timeout waiting for frame")
     finally:
         await client.close()
@@ -397,7 +397,7 @@ async def _cmd_repl(args: argparse.Namespace) -> None:
                 try:
                     frame = await client.wait_for(can_id, d0=d0, d1=d1, timeout=to)
                     print("[WAIT MATCH]", frame)
-                except asyncio.TimeoutError:
+                except (asyncio.TimeoutError, TimeoutError):
                     print("[WAIT TIMEOUT]")
 
             else:
