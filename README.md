@@ -1,4 +1,6 @@
-[![CI](https://github.com/kstaniek/caneth/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kstaniek/caneth/actions/workflows/ci.yml)
+[![CI](https://github.com/kstaniek/caneth/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/kstaniek/caneth/actions/workflows/test.yml)
+[![Lint](https://github.com/kstaniek/caneth/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/kstaniek/caneth/actions/workflows/lint.yml)
+[![Type](https://github.com/kstaniek/caneth/actions/workflows/type.yml/badge.svg?branch=main)](https://github.com/kstaniek/caneth/actions/workflows/type.yml)
 [![codecov](https://codecov.io/gh/kstaniek/caneth/branch/main/graph/badge.svg)](https://codecov.io/gh/kstaniek/caneth)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://kstaniek.github.io/caneth/)
 [![PyPI version](https://img.shields.io/pypi/v/caneth.svg)](https://pypi.org/project/caneth/)
