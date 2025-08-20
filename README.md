@@ -1,3 +1,10 @@
+[![CI](https://github.com/kstaniek/caneth/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kstaniek/caneth/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/kstaniek/caneth/branch/main/graph/badge.svg)](https://codecov.io/gh/kstaniek/caneth)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://kstaniek.github.io/caneth/)
+[![PyPI version](https://img.shields.io/pypi/v/caneth.svg)](https://pypi.org/project/caneth/)
+[![Python versions](https://img.shields.io/pypi/pyversions/caneth.svg)](https://pypi.org/project/caneth/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 # caneth
 
 Asyncio CAN client for **Waveshare 2-CH-CAN-TO-ETH** devices.  
