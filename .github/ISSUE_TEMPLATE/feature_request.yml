@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest an idea for this project
+labels: ["enhancement"]
+assignees: []
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature request related to a problem?
+      description: Please describe the problem you’re trying to solve.
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the solution you’d like
+      description: What should the feature do? Any API ideas?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Describe alternatives you’ve considered
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context

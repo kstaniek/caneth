@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question / start a discussion
+    url: https://github.com/kstaniek/caneth/discussions
+    about: Q&A, design ideas, how-to questions.

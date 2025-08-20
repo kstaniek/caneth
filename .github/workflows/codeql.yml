@@ -1,0 +1,42 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  schedule:
+    - cron: "0 6 * * 1" # Mondays at 06:00 UTC
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (CodeQL)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+
+      # For Python projects CodeQL doesn’t need a build step,
+      # but we'll install deps to improve library resolution.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install minimal deps
+        run: |
+          python -m pip install -U pip
+          pip install -e . || true
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3

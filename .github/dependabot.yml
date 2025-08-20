@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # Keep GitHub Actions up to date
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["deps", "github-actions"]
+    open-pull-requests-limit: 10
+
+  # Keep Python deps (pyproject/requirements) fresh
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["deps", "python"]
+    open-pull-requests-limit: 10
+    # If you have a requirements*.txt, Dependabot will pick it up automatically.

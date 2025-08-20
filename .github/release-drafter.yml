@@ -1,0 +1,23 @@
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+version-template: "$MAJOR.$MINOR.$PATCH"
+
+categories:
+  - title: "🚀 Features"
+    labels: ["feature", "enhancement"]
+  - title: "🐛 Fixes"
+    labels: ["bug", "fix"]
+  - title: "🧰 Maintenance"
+    labels: ["chore", "maintenance", "refactor"]
+  - title: "🧪 Tests"
+    labels: ["test", "tests"]
+  - title: "📚 Docs"
+    labels: ["docs", "documentation"]
+
+change-template: "- $TITLE (#$NUMBER) by @$AUTHOR"
+template: |
+  ## What’s Changed
+
+  $CHANGES
+
+  _This release was prepared with **Release Drafter**._
