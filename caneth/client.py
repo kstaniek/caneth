@@ -587,8 +587,8 @@ class WaveShareCANClient:
                     # Send all frames in this item contiguously
                     sent = 0  # how many frames were fully sent+drained
                     try:
-                        for idx, frame_bytes in enumerate(item.frames):
-                            writer.write(frame_bytes)
+                        for idx, frame_data in enumerate(item.frames):
+                            writer.write(frame_data)
                             await writer.drain()
                             sent = idx + 1  # we finished this one successfully
                     except (asyncio.CancelledError, GeneratorExit):
@@ -599,7 +599,9 @@ class WaveShareCANClient:
                         remaining = item.frames[sent:]
                         if remaining:
                             async with self._tx_cv:
-                                self._tx_buf.appendleft(_TxItem(frames=remaining, atomic=True, can_id=item.can_id))
+                                self._tx_buf.appendleft(
+                                    _TxItem(frames=remaining, atomic=item.atomic, can_id=item.can_id)
+                                )
                                 self._tx_cv.notify()
                         self._connected.clear()  # hand control to reconnect manager
                         break
