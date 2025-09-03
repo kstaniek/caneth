@@ -129,6 +129,8 @@ class WaveShareCANClient:
     - **Buffered send**: `send()` enqueues a frame; a background TX loop flushes when connected.
     """
 
+    _TX_WAIT_TIMEOUT: float = 0.05  # Timeout for waiting on TX condition variable
+
     def __init__(
         self,
         host: str,
@@ -550,10 +552,8 @@ class WaveShareCANClient:
                             self._tx_cv.notify()
                         else:
                             # Wait for new data or disconnection/close
-                            await asyncio.wait(
-                                [asyncio.create_task(self._connected.wait()), asyncio.create_task(self._closed.wait())],
-                                timeout=0.05,
-                            )
+                            with contextlib.suppress(TimeoutError):
+                                await asyncio.wait_for(self._tx_cv.wait(), timeout=WaveShareCANClient._TX_WAIT_TIMEOUT)
                             continue
 
                     if raw is None:
