@@ -553,7 +553,7 @@ class WaveShareCANClient:
                         else:
                             # Wait for new data or disconnection/close
                             try:
-                                await asyncio.wait_for(self._tx_cv.wait(), timeout=WaveShareCANClient._TX_WAIT_TIMEOUT)
+                                await asyncio.wait_for(self._tx_cv.wait(), timeout=self._TX_WAIT_TIMEOUT)
                             except asyncio.TimeoutError:
                                 # Timeout occurred; no new data, continue loop
                                 continue
@@ -596,7 +596,7 @@ class WaveShareCANClient:
                 break
             except Exception:
                 self.log.exception("Unexpected error in TX loop")
-                await asyncio.sleep(WaveShareCANClient._TX_WAIT_TIMEOUT)
+                await asyncio.sleep(self._TX_WAIT_TIMEOUT)
 
     async def _dispatch(self, frame: CANFrame) -> None:
         """Run global observers, specific callbacks, and resolve waiters."""
