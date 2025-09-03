@@ -33,6 +33,15 @@ __all__ = ["CANFrame", "WaveShareCANClient"]
 
 
 @dataclass(slots=True)
+class _TxItem:
+    """One atomic unit for transmission."""
+
+    frames: list[bytes]  # one or more 13-byte encoded frames
+    atomic: bool  # if True, must not be interleaved
+    can_id: int | None = None  # optional metadata (for logging)
+
+
+@dataclass(slots=True)
 class CANFrame:
     """
     A single CAN frame as carried by the Waveshare 13-byte wire format.
@@ -150,7 +159,7 @@ class WaveShareCANClient:
         self.reconnect_cap = float(reconnect_cap)
 
         # Outgoing buffered frames (already encoded as 13-byte chunks)
-        self._tx_buf: deque[bytes] = deque()
+        self._tx_buf: deque[_TxItem] = deque()
         self._tx_cv: asyncio.Condition = asyncio.Condition()
         self._send_buffer_limit = int(send_buffer_limit)
         self._drop_oldest_on_full = bool(drop_oldest_on_full)
@@ -376,55 +385,58 @@ class WaveShareCANClient:
         wait_for_space: bool = False,
     ) -> None:
         """
-        Enqueue a frame for sending. The TX loop will flush it when connected.
-
-        Args:
-            can_id: Integer CAN ID.
-            data: Byte-like payload (0..8 bytes). Iterable[int] accepted.
-            extended: Force extended or standard. If None, inferred as (can_id > 0x7FF).
-            rtr: Remote frame flag.
-            wait_for_space: If True and buffer is full and `drop_oldest_on_full=False`,
-                            this call will block until space is available.
+        Enqueue a single frame (non-atomic item). TX loop will flush it when connected.
+        For non-interleaved sequences, use send_batch(...) or the atomic(...) context.
         """
-        # If the client was explicitly closed, sending is an error.
+        # Explicit close => sending is an error
         if self._closed.is_set():
             raise RuntimeError("Client is closed")
 
-        payload = bytes(data) if not isinstance(data, bytes | bytearray) else bytes(data)
+        # Normalize payload
+        payload = data if isinstance(data, bytes | bytearray) else bytes(data)
         if len(payload) > 8:
             raise ValueError("data length must be <= 8")
+
         if extended is None:
             extended = can_id > 0x7FF
-        frame = CANFrame(can_id=int(can_id), data=payload, extended=bool(extended), rtr=bool(rtr), dlc=len(payload))
-        raw = frame.to_bytes()
 
-        async with self._tx_cv:
-            # Fast path: space available
-            if len(self._tx_buf) < self._send_buffer_limit:
-                self._tx_buf.append(raw)
-                self._tx_cv.notify()
-                return
+        raw = self._encode_frame(can_id=int(can_id), data=payload, extended=bool(extended), rtr=bool(rtr))
 
-            # Buffer full
-            if self._drop_oldest_on_full:
-                # Drop oldest, enqueue newest
-                _ = self._tx_buf.popleft()
-                self._tx_buf.append(raw)
-                self._tx_cv.notify()
-                return
+        # Non-atomic item with a single frame (keeps backward compatibility)
+        item = _TxItem(frames=[raw], atomic=False, can_id=int(can_id))
+        await self._enqueue_item(item, wait_for_space=wait_for_space)
 
-            if not wait_for_space:
-                # Respect limit; drop this frame and log a warning
-                self.log.warning("TX buffer full; dropping frame id=0x%X", can_id)
-                return
+    async def send_batch(
+        self,
+        can_id: int,
+        data: Iterable[bytes | bytearray | Iterable[int]],
+        *,
+        extended: bool | None = None,
+        rtr: bool = False,
+        wait_for_space: bool = False,
+    ) -> None:
+        """
+        Enqueue several frames for the same CAN ID as an *atomic* batch.
+        They will be sent back-to-back without interleaving.
+        The batch remains atomic across reconnects (remaining frames re-queued together).
+        """
+        if self._closed.is_set():
+            raise RuntimeError("Client is closed")
 
-            # Back-pressure: wait for space
-            while len(self._tx_buf) >= self._send_buffer_limit and not self._closed.is_set():
-                await self._tx_cv.wait()
-            if self._closed.is_set():
-                return
-            self._tx_buf.append(raw)
-            self._tx_cv.notify()
+        data_list: list[bytes] = []
+        for d in data:
+            b = bytes(d) if not isinstance(d, bytes | bytearray) else bytes(d)
+            if len(b) > 8:
+                raise ValueError("data length must be <= 8")
+            data_list.append(b)
+
+        if extended is None:
+            extended = can_id > 0x7FF
+
+        frames = [self._encode_frame(can_id, b, extended=extended, rtr=rtr) for b in data_list]
+        if not frames:
+            return
+        await self._enqueue_item(_TxItem(frames=frames, atomic=True, can_id=int(can_id)), wait_for_space=wait_for_space)
 
     # ---------------------------- Internals --------------------------------
 
@@ -530,60 +542,65 @@ class WaveShareCANClient:
 
     async def _tx_loop(self) -> None:
         """
-        Background transmitter: flush buffered frames when connected.
+        Background transmitter: flush buffered items when connected.
 
-        - Waits for `_connected` before attempting writes.
-        - On write error, re-queues the frame at the head and waits for reconnection.
+        - Pops one _TxItem at a time.
+        - Sends all frames within the item back-to-back (preserving atomic batches).
+        - On write error mid-item, re-queues the remaining frames as a single atomic item.
+        - If writer disappears mid-loop, re-queues the whole item, clears _connected, and yields.
         """
         while not self._closed.is_set():
-            # Wait until we have a connection
+            # Wait for a connection
             await self._connected.wait()
             if self._closed.is_set():
                 break
 
-            # Drain buffer while connected
             try:
                 while self._connected.is_set() and not self._closed.is_set():
-                    raw: bytes | None = None
+                    item: _TxItem | None = None
                     async with self._tx_cv:
                         if self._tx_buf:
-                            raw = self._tx_buf.popleft()
+                            item = self._tx_buf.popleft()
                             # notify space for potential waiters
                             self._tx_cv.notify()
                         else:
-                            # Wait for new data or disconnection/close
+                            # Wait for new data or periodic re-check (to notice disconnect/close)
                             try:
                                 await asyncio.wait_for(self._tx_cv.wait(), timeout=self._TX_WAIT_TIMEOUT)
                             except asyncio.TimeoutError:
-                                # Timeout occurred; no new data, continue loop
                                 continue
 
-                    if raw is None:
+                    if item is None:
                         continue
 
                     writer = self._writer
                     if writer is None:
-                        # Lost connection detected here; make state consistent.
+                        # Lost connection; put the whole item back and hand off to reconnect.
                         async with self._tx_cv:
-                            self._tx_buf.appendleft(raw)
+                            self._tx_buf.appendleft(item)
                             self._tx_cv.notify()
                         self._connected.clear()
                         # Yield to avoid a tight loop and let reconnect/teardown tasks run.
-                        await asyncio.sleep(0)  # avoid potential tight re-loop
+                        await asyncio.sleep(0)  # cooperative yield to avoid a tight re-loop
                         break
 
+                    # Send all frames in this item contiguously
                     try:
-                        writer.write(raw)
-                        await writer.drain()
+                        for idx, frame_bytes in enumerate(item.frames):  # noqa B007
+                            writer.write(frame_bytes)
+                            await writer.drain()
                     except Exception as e:
                         self.log.warning("Write error: %s; will retry after reconnect", e)
-                        # Re-queue at head to preserve order
-                        async with self._tx_cv:
-                            self._tx_buf.appendleft(raw)
-                            self._tx_cv.notify()
-                        # Force reconnect handling by clearing the flag
+                        # Re-queue remaining frames atomically (preserve non-interleaving)
+                        remaining = item.frames[idx:] if "idx" in locals() else item.frames
+                        if remaining:
+                            async with self._tx_cv:
+                                self._tx_buf.appendleft(_TxItem(frames=remaining, atomic=True, can_id=item.can_id))
+                                self._tx_cv.notify()
+                        # Hand control to reconnect manager
                         self._connected.clear()
                         break
+
             except asyncio.CancelledError:
                 break
             except Exception:
@@ -648,3 +665,75 @@ class WaveShareCANClient:
                             await res
                     except Exception:
                         self.log.exception("Error in wait_for callback")
+
+    def _encode_frame(self, can_id: int, data: bytes, *, extended: bool, rtr: bool) -> bytes:
+        frame = CANFrame(can_id=int(can_id), data=data, extended=bool(extended), rtr=bool(rtr), dlc=len(data))
+        return frame.to_bytes()
+
+    async def _enqueue_item(self, item: _TxItem, *, wait_for_space: bool) -> None:
+        async with self._tx_cv:
+            if len(self._tx_buf) < self._send_buffer_limit:
+                self._tx_buf.append(item)
+                self._tx_cv.notify()
+                return
+
+            if self._drop_oldest_on_full:
+                _ = self._tx_buf.popleft()  # drop oldest item
+                self._tx_buf.append(item)
+                self._tx_cv.notify()
+                return
+
+            if not wait_for_space:
+                self.log.warning("TX buffer full; dropping item (can_id=%s, frames=%d)", item.can_id, len(item.frames))
+                return
+
+            # Back-pressure
+            while len(self._tx_buf) >= self._send_buffer_limit and not self._closed.is_set():
+                await self._tx_cv.wait()
+            if not self._closed.is_set():
+                self._tx_buf.append(item)
+                self._tx_cv.notify()
+
+
+class _AtomicSender:
+    def __init__(
+        self, client: WaveShareCANClient, can_id: int, *, extended: bool | None, rtr: bool, wait_for_space: bool
+    ):
+        self._client = client
+        self._can_id = int(can_id)
+        self._extended = extended
+        self._rtr = rtr
+        self._wait = wait_for_space
+        self._datas: list[bytes] = []
+
+    async def send(self, data: bytes | bytearray | Iterable[int]) -> None:
+        b = bytes(data) if not isinstance(data, bytes | bytearray) else bytes(data)
+        if len(b) > 8:
+            raise ValueError("data length must be <= 8")
+        self._datas.append(b)
+
+    async def __aenter__(self) -> _AtomicSender:
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        if exc is None and self._datas:
+            await self._client.send_batch(
+                self._can_id,
+                self._datas,
+                extended=self._extended,
+                rtr=self._rtr,
+                wait_for_space=self._wait,
+            )
+
+
+def atomic(
+    self, can_id: int, *, extended: bool | None = None, rtr: bool = False, wait_for_space: bool = False
+) -> _AtomicSender:
+    """
+    Usage:
+        async with client.atomic(0x123) as a:
+            await a.send(b"\x01")
+            await a.send(b"\x02")
+    Both frames are sent contiguously (no interleaving).
+    """
+    return _AtomicSender(self, can_id, extended=extended, rtr=rtr, wait_for_space=wait_for_space)
