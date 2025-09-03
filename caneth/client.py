@@ -62,6 +62,8 @@ class _TxItem:
     frames: list[bytes]  # one or more 13-byte encoded frames
     atomic: bool  # if True, must not be interleaved
     can_id: int | None = None  # optional metadata (for logging)
+
+
 @dataclass(slots=True)
 class CANFrame:
     """
