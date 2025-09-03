@@ -563,10 +563,12 @@ class WaveShareCANClient:
 
                     writer = self._writer
                     if writer is None:
-                        # Lost connection; push back and break to outer wait
+                        # Lost connection detected here; make state consistent.
                         async with self._tx_cv:
                             self._tx_buf.appendleft(raw)
                             self._tx_cv.notify()
+                        self._connected.clear()
+                        await asyncio.sleep(0)  # avoid potential tight re-loop
                         break
 
                     try:
