@@ -694,6 +694,18 @@ class WaveShareCANClient:
                 self._tx_buf.append(item)
                 self._tx_cv.notify()
 
+    def atomic(
+        self, can_id: int, *, extended: bool | None = None, rtr: bool = False, wait_for_space: bool = False
+    ) -> _AtomicSender:
+        """
+        Usage:
+            async with client.atomic(0x123) as a:
+                await a.send(b"\x01")
+                await a.send(b"\x02")
+        Both frames are sent contiguously (no interleaving).
+        """
+        return _AtomicSender(self, can_id, extended=extended, rtr=rtr, wait_for_space=wait_for_space)
+
 
 class _AtomicSender:
     def __init__(
@@ -724,16 +736,3 @@ class _AtomicSender:
                 rtr=self._rtr,
                 wait_for_space=self._wait,
             )
-
-
-def atomic(
-    self, can_id: int, *, extended: bool | None = None, rtr: bool = False, wait_for_space: bool = False
-) -> _AtomicSender:
-    """
-    Usage:
-        async with client.atomic(0x123) as a:
-            await a.send(b"\x01")
-            await a.send(b"\x02")
-    Both frames are sent contiguously (no interleaving).
-    """
-    return _AtomicSender(self, can_id, extended=extended, rtr=rtr, wait_for_space=wait_for_space)
