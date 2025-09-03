@@ -414,7 +414,7 @@ class WaveShareCANClient:
                 return
 
             if not wait_for_space:
-                # Respect limit; drop this frame silently or log a warning
+                # Respect limit; drop this frame and log a warning
                 self.log.warning("TX buffer full; dropping frame id=0x%X", can_id)
                 return
 
