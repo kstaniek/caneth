@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections import deque
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 
@@ -115,14 +116,20 @@ class WaveShareCANClient:
         reconnect_cap: When reconnect_max == 0 (retry forever), cap backoff to this many seconds (default 60).
         name: Logger name suffix.
 
+        # Sending / buffering
+        send_buffer_limit: Max number of frames kept in memory (default 1024).
+        drop_oldest_on_full: If True (default), drop the oldest frame when buffer is full.
+                             If False, `send()` will apply back-pressure and wait for space.
+
     Behavior:
-    - Connects and reads fixed 13-byte frames in a loop.
-    - Automatically reconnects on EOF or socket errors (see backoff knobs).
-    - `on_frame()` registers global observers.
-    - `register_callback(id[, d0[, d1]], cb)` registers matchers by ID and optional first bytes.
-    - `wait_for(id[, d0[, d1]], timeout=None, callback=None)` awaits a matching frame and
-      optionally calls `callback(frame)` when it arrives.
+    - Connects and reads fixed 13-byte frames in a loop; auto-reconnects on errors.
+    - Global observers via `on_frame()`.
+    - Specific callbacks via `register_callback(id[, d0[, d1]], cb)`.
+    - `wait_for(id[, d0[, d1]], timeout=None, callback=None)`.
+    - **Buffered send**: `send()` enqueues a frame; a background TX loop flushes when connected.
     """
+
+    _TX_WAIT_TIMEOUT: float = 0.05  # Timeout for waiting on TX condition variable
 
     def __init__(
         self,
@@ -131,6 +138,9 @@ class WaveShareCANClient:
         reconnect_initial: float = 0.5,
         reconnect_max: float = 10.0,
         reconnect_cap: float = 60.0,
+        *,
+        send_buffer_limit: int = 1024,
+        drop_oldest_on_full: bool = True,
         name: str = "can1",
     ) -> None:
         self.host = host
@@ -139,10 +149,17 @@ class WaveShareCANClient:
         self.reconnect_max = float(reconnect_max)
         self.reconnect_cap = float(reconnect_cap)
 
+        # Outgoing buffered frames (already encoded as 13-byte chunks)
+        self._tx_buf: deque[bytes] = deque()
+        self._tx_cv: asyncio.Condition = asyncio.Condition()
+        self._send_buffer_limit = int(send_buffer_limit)
+        self._drop_oldest_on_full = bool(drop_oldest_on_full)
+
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
-        self._task: asyncio.Task[None] | None = None
+        self._mgr_task: asyncio.Task[None] | None = None
         self._rx_task: asyncio.Task[None] | None = None
+        self._tx_task: asyncio.Task[None] | None = None
 
         self._connected = asyncio.Event()
         self._closed = asyncio.Event()
@@ -163,40 +180,59 @@ class WaveShareCANClient:
     # ----------------------------- Lifecycle -----------------------------
 
     async def start(self) -> None:
-        """Start the background connection manager task."""
-        if self._task and not self._task.done():
+        """Start the background manager (connect/reconnect), RX loop and TX loop."""
+        if self._mgr_task and not self._mgr_task.done():
             return
         self._closed.clear()
-        self._task = asyncio.create_task(self._run(), name="caneth-run")
+        self._mgr_task = asyncio.create_task(self._run(), name="caneth-run")
+        # Start TX loop once; it waits on connection and buffer content.
+        if not self._tx_task or self._tx_task.done():
+            self._tx_task = asyncio.create_task(self._tx_loop(), name="caneth-tx")
 
     async def close(self) -> None:
-        """
-        Signal close and wait for background tasks.
-        Safe to call multiple times.
-        """
+        """Signal close and wait for background tasks. Safe to call multiple times."""
         self._closed.set()
         self._connected.clear()
 
+        # Wake TX waiters
+        async with self._tx_cv:
+            self._tx_cv.notify_all()
+
+        # Cancel RX/TX tasks
         if self._rx_task:
             self._rx_task.cancel()
-            # swallow the cancellation from the rx task
             with contextlib.suppress(asyncio.CancelledError):
                 await self._rx_task
             self._rx_task = None
 
+        if self._tx_task:
+            self._tx_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._tx_task
+            self._tx_task = None
+
         await self._teardown_io()
 
-        if self._task:
-            # don't let close() raise if the run task is already ending
+        if self._mgr_task:
             with contextlib.suppress(Exception):
-                await asyncio.wait_for(self._task, timeout=1.0)
-            self._task = None
+                await asyncio.wait_for(self._mgr_task, timeout=1.0)
+            self._mgr_task = None
 
     async def wait_connected(self, timeout: float | None = None) -> None:
         """Wait until the TCP connection is established (or timeout)."""
         await asyncio.wait_for(self._connected.wait(), timeout=timeout)
 
     # ------------------------------- API --------------------------------
+
+    def buffer_size(self) -> int:
+        """Current number of frames waiting in the send buffer."""
+        return len(self._tx_buf)
+
+    async def clear_buffer(self) -> None:
+        """Drop all buffered frames (not yet sent)."""
+        async with self._tx_cv:
+            self._tx_buf.clear()
+            self._tx_cv.notify_all()
 
     def on_frame(self, callback: Callback) -> None:
         """
@@ -337,16 +373,23 @@ class WaveShareCANClient:
         *,
         extended: bool | None = None,
         rtr: bool = False,
+        wait_for_space: bool = False,
     ) -> None:
         """
-        Send a single frame.
+        Enqueue a frame for sending. The TX loop will flush it when connected.
 
         Args:
             can_id: Integer CAN ID.
-            data: Byte-like payload (0..8 bytes). Iterable[int] accepted and packed.
-            extended: Force extended (29-bit) or standard (11-bit). If None, inferred from `can_id > 0x7FF`.
+            data: Byte-like payload (0..8 bytes). Iterable[int] accepted.
+            extended: Force extended or standard. If None, inferred as (can_id > 0x7FF).
             rtr: Remote frame flag.
+            wait_for_space: If True and buffer is full and `drop_oldest_on_full=False`,
+                            this call will block until space is available.
         """
+        # If the client was explicitly closed, sending is an error.
+        if self._closed.is_set():
+            raise RuntimeError("Client is closed")
+
         payload = bytes(data) if not isinstance(data, bytes | bytearray) else bytes(data)
         if len(payload) > 8:
             raise ValueError("data length must be <= 8")
@@ -355,11 +398,33 @@ class WaveShareCANClient:
         frame = CANFrame(can_id=int(can_id), data=payload, extended=bool(extended), rtr=bool(rtr), dlc=len(payload))
         raw = frame.to_bytes()
 
-        writer = self._writer
-        if writer is None:
-            raise RuntimeError("Not connected")
-        writer.write(raw)
-        await writer.drain()
+        async with self._tx_cv:
+            # Fast path: space available
+            if len(self._tx_buf) < self._send_buffer_limit:
+                self._tx_buf.append(raw)
+                self._tx_cv.notify()
+                return
+
+            # Buffer full
+            if self._drop_oldest_on_full:
+                # Drop oldest, enqueue newest
+                _ = self._tx_buf.popleft()
+                self._tx_buf.append(raw)
+                self._tx_cv.notify()
+                return
+
+            if not wait_for_space:
+                # Respect limit; drop this frame and log a warning
+                self.log.warning("TX buffer full; dropping frame id=0x%X", can_id)
+                return
+
+            # Back-pressure: wait for space
+            while len(self._tx_buf) >= self._send_buffer_limit and not self._closed.is_set():
+                await self._tx_cv.wait()
+            if self._closed.is_set():
+                return
+            self._tx_buf.append(raw)
+            self._tx_cv.notify()
 
     # ---------------------------- Internals --------------------------------
 
@@ -433,12 +498,12 @@ class WaveShareCANClient:
             except Exception:
                 pass
 
-    async def _read_loop(self) -> None:
-        """
-        Read fixed 13-byte frames, decode, and dispatch.
+        # Wake any senders waiting for space (so they can exit if closed)
+        async with self._tx_cv:
+            self._tx_cv.notify_all()
 
-        Exits on EOF or IncompleteReadError.
-        """
+    async def _read_loop(self) -> None:
+        """Read fixed 13-byte frames, decode, and dispatch. Exits on EOF."""
         reader = self._reader
         if reader is None:
             return
@@ -463,6 +528,68 @@ class WaveShareCANClient:
             except Exception:
                 self.log.exception("Error during dispatch")
 
+    async def _tx_loop(self) -> None:
+        """
+        Background transmitter: flush buffered frames when connected.
+
+        - Waits for `_connected` before attempting writes.
+        - On write error, re-queues the frame at the head and waits for reconnection.
+        """
+        while not self._closed.is_set():
+            # Wait until we have a connection
+            await self._connected.wait()
+            if self._closed.is_set():
+                break
+
+            # Drain buffer while connected
+            try:
+                while self._connected.is_set() and not self._closed.is_set():
+                    raw: bytes | None = None
+                    async with self._tx_cv:
+                        if self._tx_buf:
+                            raw = self._tx_buf.popleft()
+                            # notify space for potential waiters
+                            self._tx_cv.notify()
+                        else:
+                            # Wait for new data or disconnection/close
+                            try:
+                                await asyncio.wait_for(self._tx_cv.wait(), timeout=self._TX_WAIT_TIMEOUT)
+                            except asyncio.TimeoutError:
+                                # Timeout occurred; no new data, continue loop
+                                continue
+
+                    if raw is None:
+                        continue
+
+                    writer = self._writer
+                    if writer is None:
+                        # Lost connection detected here; make state consistent.
+                        async with self._tx_cv:
+                            self._tx_buf.appendleft(raw)
+                            self._tx_cv.notify()
+                        self._connected.clear()
+                        # Yield to avoid a tight loop and let reconnect/teardown tasks run.
+                        await asyncio.sleep(0)  # avoid potential tight re-loop
+                        break
+
+                    try:
+                        writer.write(raw)
+                        await writer.drain()
+                    except Exception as e:
+                        self.log.warning("Write error: %s; will retry after reconnect", e)
+                        # Re-queue at head to preserve order
+                        async with self._tx_cv:
+                            self._tx_buf.appendleft(raw)
+                            self._tx_cv.notify()
+                        # Force reconnect handling by clearing the flag
+                        self._connected.clear()
+                        break
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                self.log.exception("Unexpected error in TX loop")
+                await asyncio.sleep(self._TX_WAIT_TIMEOUT)
+
     async def _dispatch(self, frame: CANFrame) -> None:
         """Run global observers, specific callbacks, and resolve waiters."""
         # 1) Global observers
@@ -476,14 +603,11 @@ class WaveShareCANClient:
 
         # 2) Specific callbacks with optional wildcards
         candidates: list[CallbackKey] = []
-        # ID-only
-        candidates.append((frame.can_id, None, None))
-        # ID + d0
+        candidates.append((frame.can_id, None, None))  # ID only
         if frame.dlc >= 1:
-            candidates.append((frame.can_id, frame.data[0], None))
-        # ID + d0 + d1
+            candidates.append((frame.can_id, frame.data[0], None))  # ID + d0
         if frame.dlc >= 2:
-            candidates.append((frame.can_id, frame.data[0], frame.data[1]))
+            candidates.append((frame.can_id, frame.data[0], frame.data[1]))  # ID + d0 + d1
 
         seen: set[int] = set()
         for key in candidates:
@@ -513,7 +637,6 @@ class WaveShareCANClient:
                 to_complete.append(w)
 
             for w in to_complete:
-                # remove from list first to avoid race
                 with contextlib.suppress(ValueError):
                     self._waiters.remove(w)
                 if not w.fut.done():
