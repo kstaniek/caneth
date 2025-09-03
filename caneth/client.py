@@ -552,9 +552,11 @@ class WaveShareCANClient:
                             self._tx_cv.notify()
                         else:
                             # Wait for new data or disconnection/close
-                            with contextlib.suppress(TimeoutError):
+                            try:
                                 await asyncio.wait_for(self._tx_cv.wait(), timeout=WaveShareCANClient._TX_WAIT_TIMEOUT)
-                            continue
+                            except asyncio.TimeoutError:
+                                # Timeout occurred; no new data, continue loop
+                                continue
 
                     if raw is None:
                         continue
