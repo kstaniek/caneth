@@ -34,13 +34,34 @@ __all__ = ["CANFrame", "WaveShareCANClient"]
 
 @dataclass(slots=True)
 class _TxItem:
-    """One atomic unit for transmission."""
+    """
+    One atomic unit for transmission.
+
+    The `atomic` field controls frame ordering and interleaving guarantees:
+
+    - If `atomic=True`, all frames in `frames` are sent together, without interleaving
+      with frames from other transmissions. This guarantees that the sequence of frames
+      is preserved, even across reconnections. If a reconnection occurs before all frames
+      are sent, the entire atomic group will be retransmitted, ensuring ordering and atomicity.
+
+    - If `atomic=False`, frames may be interleaved with other transmissions. There is no
+      guarantee that the frames will be sent together or in order relative to other frames.
+      During reconnection, only unsent frames will be retransmitted, and ordering may not
+      be preserved.
+
+    Use `atomic=True` when frame ordering and atomic delivery are required (e.g., for
+    multi-frame transactions or protocols that require strict sequencing). Use `atomic=False`
+    for independent frames where ordering and grouping are not critical.
+
+    Attributes:
+        frames: List of one or more 13-byte encoded frames to transmit.
+        atomic: If True, frames are sent as an atomic group; if False, frames may be interleaved.
+        can_id: Optional CAN ID metadata (for logging).
+    """
 
     frames: list[bytes]  # one or more 13-byte encoded frames
     atomic: bool  # if True, must not be interleaved
     can_id: int | None = None  # optional metadata (for logging)
-
-
 @dataclass(slots=True)
 class CANFrame:
     """
