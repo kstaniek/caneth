@@ -568,6 +568,15 @@ class WaveShareCANClient:
                             self._tx_buf.appendleft(raw)
                             self._tx_cv.notify()
                         self._connected.clear()
+                        # tells the scheduler: “yield now; let other tasks run.”
+                        # That gives the reconnect manager (and teardown paths that
+                        # notify the condition, close the writer, etc.) a chance to
+                        # advance the state before TX loops again. It:
+                        # - prevents a CPU spin,
+                        # - avoids starving the reconnect task,
+                        # - does not introduce a real delay (it yields, not sleeps).
+                        # In 3.12+, await asyncio.sleep(0) remains the recommended
+                        # simple yield; there’s no dedicated “yield” primitive.
                         await asyncio.sleep(0)  # avoid potential tight re-loop
                         break
 
@@ -587,7 +596,7 @@ class WaveShareCANClient:
                 break
             except Exception:
                 self.log.exception("Unexpected error in TX loop")
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(WaveShareCANClient._TX_WAIT_TIMEOUT)
 
     async def _dispatch(self, frame: CANFrame) -> None:
         """Run global observers, specific callbacks, and resolve waiters."""
