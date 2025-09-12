@@ -610,10 +610,10 @@ class WaveShareCANClient:
                     # Send all frames in this item contiguously
                     sent = 0  # how many frames were fully sent+drained
                     try:
-                        for idx, frame_data in enumerate(item.frames):
-                            writer.write(frame_data)
-                            await writer.drain()
-                            sent = idx + 1  # we finished this one successfully
+                        data = b"".join(item.frames)
+                        writer.write(data)
+                        await writer.drain()
+                        sent = len(item.frames)
                     except (asyncio.CancelledError, GeneratorExit):
                         raise  # don't swallow cancellations
                     except Exception as e:
